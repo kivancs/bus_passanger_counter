@@ -1,0 +1,3 @@
+Bu klasör yolcu_sayar.py çalıştıktan sonra otomatik dolar:
+- output.mp4 → işlenmiş video
+- count_log.json → bindi/indi sayımları

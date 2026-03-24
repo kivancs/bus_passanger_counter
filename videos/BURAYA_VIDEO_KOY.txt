@@ -1,0 +1,4 @@
+Bu klasöre test.mp4 veya kamera kaydını koy.
+config.py içindeki VIDEO_SOURCE değerini buna göre ayarla:
+  - Webcam için: VIDEO_SOURCE = 0
+  - Video dosyası için: VIDEO_SOURCE = "videos/test.mp4"
