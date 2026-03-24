@@ -1,0 +1,10 @@
+{
+  "max_capacity": 20,
+  "initial_stats": {
+    "current_passengers": 12,
+    "total_in": 45,
+    "total_out": 33,
+    "time_labels": ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"],
+    "occupancy_history": [5, 15, 20, 12, 8, 14]
+  }
+}

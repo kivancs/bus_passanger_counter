@@ -1,109 +1,96 @@
-# ============================================================
-# YolcuSayar - Streamlit Web Arayüzü
-# Çalıştırmak için: streamlit run web/app.py
-# ============================================================
-
-import streamlit as st
+from flask import Flask, render_template, jsonify, Response
 import json
-import time
+import random # Simülasyon verisi üretmek için
 import os
+import time
 
-LOG_PATH = "outputs/count_log.json"
+app = Flask(__name__)
 
-# ── Seed verisi ──────────────────────────────────────────────
-SEED = {
-    "max_capacity": 20,
-    "initial_stats": {
-        "current_passengers": 12,
-        "total_in":           45,
-        "total_out":          33,
-        "time_labels":        ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00"],
-        "occupancy_history":  [5, 15, 20, 12, 8, 14]
-    }
-}
-
-st.set_page_config(
-    page_title="YolcuSayar",
-    page_icon="🚌",
-    layout="wide"
-)
-
-# ── Başlık ────────────────────────────────────────────────────
-st.markdown("## 🚌 YolcuSayar — Yolcu Sayım Paneli")
-st.caption("Artvin Çoruh Üniversitesi | Bilgisayar Mühendisliği Bitirme Projesi")
-st.divider()
-
-auto_refresh = st.toggle("🔄 Otomatik Yenile (5sn)", value=False)
-
-# ── Log yükle (yoksa seed kullan) ────────────────────────────
-def load_data():
-    if os.path.exists(LOG_PATH):
-        with open(LOG_PATH, "r", encoding="utf-8") as f:
-            raw = json.load(f)
+# --- VERİ KAYNAĞINI SOYUTLAMA (SEED DATA'DAN ÇEKME) ---
+def get_seed_data():
+    # 'seed_data.json' dosyasının konumunu bul (web klasörünün bir üst dizini)
+    json_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'seed_data.json')
+    try:
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+    except (FileNotFoundError, json.JSONDecodeError): 
+        # Eğer dosya yoksa veya içi boşsa sistem çökmesin diye varsayılan değerler
+        print(f"Uyarı: {json_file_path} okunamadı. Varsayılan veriler kullanılıyor.")
         return {
-            "bindi":    raw.get("bindi", 0),
-            "indi":     raw.get("indi",  0),
-            "net":      raw.get("net",   0),
-            "frames":   raw.get("frames", 0),
-            "timestamp":raw.get("timestamp"),
-            "from_seed": False
+            "max_capacity": 20,
+            "initial_stats": {
+                "current_passengers": 0, "total_in": 0, "total_out": 0,
+                "time_labels": [], "occupancy_history": []
+            }
         }
-    # Seed verisiyle doldur
-    s = SEED["initial_stats"]
-    return {
-        "bindi":     s["total_in"],
-        "indi":      s["total_out"],
-        "net":       s["current_passengers"],
-        "frames":    None,
-        "timestamp": None,
-        "from_seed": True,
-        "time_labels":       s["time_labels"],
-        "occupancy_history": s["occupancy_history"]
-    }
 
-data     = load_data()
-capacity = SEED["max_capacity"]
-net      = data["net"]
-doluluk  = min(int(net / capacity * 100), 100)
+# Sunucu başlarken verileri JSON'dan çek
+all_data = get_seed_data()
+MAX_CAPACITY = all_data['max_capacity']
+vehicle_stats = all_data['initial_stats']
 
-# ── Üst metrikler ─────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("🟢 Toplam Bindi",    data["bindi"])
-c2.metric("🔴 Toplam İndi",     data["indi"])
-c3.metric("🔵 Şu An Araçta",    f"{net} / {capacity}")
-c4.metric("📊 Doluluk",         f"%{doluluk}")
 
-st.divider()
+# --- WEB SAYFASI (ARAYÜZ) ROTASI ---
+@app.route('/')
+def index():
+    # Araç doluluk yüzdesini hesapla
+    if vehicle_stats["current_passengers"] is not None and MAX_CAPACITY > 0:
+        vehicle_stats["occupancy_rate"] = int((vehicle_stats["current_passengers"] / MAX_CAPACITY) * 100)
+    else:
+        vehicle_stats["occupancy_rate"] = 0
+        
+    return render_template('index.html', data=vehicle_stats)
 
-# ── Doluluk barı ──────────────────────────────────────────────
-bar_color = "normal" if doluluk < 80 else ("off" if doluluk >= 100 else "inverse")
-st.progress(doluluk / 100, text=f"Kapasite: {net}/{capacity} yolcu  (%{doluluk})")
 
-st.divider()
+# --- ANLIK VERİ GÜNCELLEME ROTASI (AJAX İÇİN) ---
+@app.route('/api/data')
+def get_data():
+    # Dinamiğe geçtiğinizde burası Raspberry Pi (MQTT) veya Veritabanından veri çekecek.
+    # Şimdilik anlık değişimi görmek için simülasyon yapıyoruz:
+    vehicle_stats["current_passengers"] += random.choice([-1, 0, 1])
+    
+    # Yolcu sayısı 0'ın altına düşmesin ve Max Kapasiteyi aşmasın
+    if vehicle_stats["current_passengers"] < 0: 
+        vehicle_stats["current_passengers"] = 0
+    if vehicle_stats["current_passengers"] > MAX_CAPACITY: 
+        vehicle_stats["current_passengers"] = MAX_CAPACITY
+    
+    # Doluluk yüzdesini güncelle
+    if MAX_CAPACITY > 0:
+        vehicle_stats["occupancy_rate"] = int((vehicle_stats["current_passengers"] / MAX_CAPACITY) * 100)
+    
+    # Frontend'e güncel veriyi gönder
+    return jsonify(vehicle_stats)
 
-# ── Saatlik doluluk grafiği ───────────────────────────────────
-st.subheader("📈 Saatlik Doluluk Geçmişi")
 
-if data.get("from_seed"):
-    import pandas as pd
-    chart_data = pd.DataFrame({
-        "Saat":    data["time_labels"],
-        "Yolcu":   data["occupancy_history"]
-    }).set_index("Saat")
-    st.line_chart(chart_data)
-    st.caption("⚠️ Gösterilen veri örnek seed verisidir. `yolcu_sayar.py` çalıştıktan sonra gerçek veriler görünür.")
-else:
-    st.info("Gerçek zamanlı grafik için çok sayıda log kaydı gerekir.")
+# --- CANLI VİDEO AKIŞI (KAMERA) ROTASI ---
+def generate_frames():
+    """
+    Gerçek projede burada OpenCV kameranız olacak.
+    Örnek:
+    import cv2
+    camera = cv2.VideoCapture(0)
+    while True:
+        success, frame = camera.read()
+        if not success: break
+        # YOLOv8 işlemleri...
+        ret, buffer = cv2.imencode('.jpg', frame)
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    """
+    # Kamera bağlanana kadar sistemin çökmemesi için boş döngü (Simülasyon)
+    while True:
+        time.sleep(1) 
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + b'' + b'\r\n')
 
-st.divider()
+@app.route('/video_feed')
+def video_feed():
+    """HTML'deki <img src="{{ url_for('video_feed') }}"> etiketinin beklediği rota"""
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-# ── Alt bilgi ─────────────────────────────────────────────────
-ts = data.get("timestamp")
-if ts:
-    st.caption(f"Son güncelleme: {time.strftime('%d.%m.%Y %H:%M:%S', time.localtime(ts))}")
-if data.get("frames"):
-    st.caption(f"İşlenen kare: {data['frames']}")
 
-if auto_refresh:
-    time.sleep(5)
-    st.rerun()
+if __name__ == '__main__':
+    # host='0.0.0.0' sayesinde aynı Wi-Fi ağındaki telefonunuzdan da girebilirsiniz.
+    app.run(debug=True, host='0.0.0.0', port=5000)
